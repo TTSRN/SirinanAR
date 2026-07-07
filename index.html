@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ตีตัวตุ่น อุปกรณ์คอมพิวเตอร์ (AR Game)</title>
+    
+    <!-- Google Fonts: Kanit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600;800&display=swap" rel="stylesheet">
+
+    <!-- MediaPipe Hands -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        :root {
+            --primary: #4ade80;
+            --danger: #ef4444;
+            --wood-bg: #b45309;
+            --wood-border: #78350f;
+            --sky-top: #38bdf8;
+            --sky-bottom: #bae6fd;
+            --grass-top: #86efac;
+            --grass-bottom: #22c55e;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            font-family: 'Kanit', sans-serif;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Video element is hidden, only used for mediapipe input */
+        #input_video {
+            display: none;
+        }
+
+        /* Canvas for rendering the game and camera feed */
+        #output_canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: 1;
+        }
+
+        /* UI Layer on top of canvas */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none; /* Let clicks pass through to canvas if needed, except for buttons */
+        }
+
+        /* Common Wooden Board Style */
+        .wooden-board {
+            background: linear-gradient(180deg, var(--wood-bg) 0%, #92400e 100%);
+            border: clamp(4px, 0.8vw, 8px) solid var(--wood-border);
+            border-radius: clamp(10px, 2vw, 20px);
+            color: white;
+            box-shadow: 0 clamp(4px, 1vw, 10px) 0 #451a03, 
+                        0 clamp(10px, 2vw, 20px) rgba(0,0,0,0.5),
+                        inset 0 4px 0 rgba(255,255,255,0.2);
+            text-shadow: 2px 2px 0 #451a03, -1px -1px 0 #451a03;
+            text-align: center;
+        }
+
+        /* --- Screens --- */
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto; /* Enable interaction for screens */
+            transition: opacity 0.3s;
+        }
+
+        .hidden {
+            opacity: 0;
+            pointer-events: none !important;
+        }
+
+        /* --- Start Screen --- */
+        #start-screen {
+            background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-bottom) 50%, var(--grass-top) 50%, var(--grass-bottom) 100%);
+            z-index: 20;
+        }
+
+        .title-container {
+            margin-bottom: 2rem;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        h1.game-title {
+            font-size: clamp(2rem, 6vw, 5rem);
+            padding: clamp(10px, 2vw, 20px) clamp(20px, 4vw, 40px);
+            font-weight: 800;
+            letter-spacing: 2px;
+            transform: rotate(-2deg);
+        }
+
+        .rules-card {
+            background: rgba(255, 255, 255, 0.95);
+            border: 4px solid #f59e0b;
+            border-radius: 20px;
+            padding: clamp(15px, 3vw, 30px);
+            max-width: 90%;
+            width: 600px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            color: #333;
+            margin-bottom: 2rem;
+        }
+
+        .rules-card h2 {
+            font-size: clamp(1.5rem, 3vw, 2.5rem);
+            color: #d97706;
+            margin-bottom: 1rem;
+            text-align: center;
+            text-shadow: none;
+        }
+
+        .rule-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            font-size: clamp(1rem, 2vw, 1.5rem);
+            font-weight: 600;
+        }
+
+        .rule-num {
+            background: #f59e0b;
+            color: white;
+            width: clamp(30px, 4vw, 40px);
+            height: clamp(30px, 4vw, 40px);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-right: 15px;
+            font-weight: 800;
+            box-shadow: 0 4px 0 #b45309;
+        }
+
+        .btn-start {
+            background: linear-gradient(180deg, #ef4444 0%, #b91c1c 100%);
+            border: 4px solid #7f1d1d;
+            border-radius: 50px;
+            color: white;
+            font-size: clamp(1.5rem, 4vw, 3rem);
+            font-weight: 800;
+            padding: 15px 50px;
+            cursor: pointer;
+            box-shadow: 0 8px 0 #7f1d1d, 0 15px 20px rgba(0,0,0,0.3);
+            text-shadow: 2px 2px 0 #7f1d1d;
+            transition: transform 0.1s, box-shadow 0.1s;
+            animation: pulse 1.5s infinite;
+        }
+
+        .btn-start:active {
+            transform: translateY(8px);
+            box-shadow: 0 0 0 #7f1d1d, 0 5px 10px rgba(0,0,0,0.3);
+        }
+
+        /* --- Game HUD --- */
+        #hud-screen {
+            pointer-events: none; /* Let clicks pass to canvas */
+        }
+
+        .hud-top {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 clamp(10px, 5vw, 40px);
+        }
+
+        .hud-box {
+            padding: 10px 30px;
+            font-size: clamp(1.5rem, 3vw, 2.5rem);
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .time-warning {
+            color: #ef4444 !important;
+            animation: blink 0.5s infinite;
+        }
+
+        #hand-warning {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(220, 38, 38, 0.9);
+            color: white;
+            padding: 20px 40px;
+            border-radius: 20px;
+            font-size: clamp(1.5rem, 3vw, 2.5rem);
+            font-weight: 800;
+            border: 4px solid white;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            transition: opacity 0.3s;
+        }
+
+        #loading-text {
+            position: absolute;
+            bottom: 20px;
+            font-size: clamp(1rem, 2vw, 1.5rem);
+            color: white;
+            text-shadow: 1px 1px 4px black;
+            font-weight: 600;
+        }
+
+        /* --- End Screen --- */
+        #end-screen {
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 30;
+        }
+
+        .result-board {
+            padding: clamp(20px, 4vw, 50px) clamp(30px, 6vw, 80px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .result-board h2 {
+            font-size: clamp(2rem, 5vw, 4rem);
+            color: #fde047;
+        }
+
+        .final-score {
+            font-size: clamp(4rem, 10vw, 8rem);
+            font-weight: 800;
+            color: white;
+            line-height: 1;
+        }
+
+        .stats {
+            font-size: clamp(1.2rem, 2.5vw, 2rem);
+            color: #e2e8f0;
+            background: rgba(0,0,0,0.3);
+            padding: 15px 30px;
+            border-radius: 15px;
+            width: 100%;
+        }
+
+        .stats div {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
+            gap: 20px;
+        }
+
+        .btn-restart {
+            margin-top: 20px;
+            background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+            border: 4px solid #1e3a8a;
+            border-radius: 50px;
+            color: white;
+            font-size: clamp(1.2rem, 3vw, 2rem);
+            font-weight: 800;
+            padding: 15px 40px;
+            cursor: pointer;
+            box-shadow: 0 8px 0 #1e3a8a, 0 15px 20px rgba(0,0,0,0.3);
+            text-shadow: 2px 2px 0 #1e3a8a;
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+
+        .btn-restart:active {
+            transform: translateY(8px);
+            box-shadow: 0 0 0 #1e3a8a, 0 5px 10px rgba(0,0,0,0.3);
+        }
+
+        /* Animations */
+        @keyframes float {
+            0%, 100% { transform: translateY(0) rotate(-2deg); }
+            50% { transform: translateY(-15px) rotate(-1deg); }
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; text-shadow: 0 0 10px red; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <!-- Hidden video for mediapipe -->
+    <video id="input_video" autoplay playsinline></video>
+    
+    <!-- Game rendering canvas -->
+    <canvas id="output_canvas"></canvas>
+
+    <!-- UI Overlay -->
+    <div id="ui-layer">
+        
+        <!-- Start Screen -->
+        <div id="start-screen" class="screen">
+            <div class="title-container wooden-board">
+                <h1 class="game-title">ตีตัวตุ่น<br>อุปกรณ์คอมพิวเตอร์</h1>
+            </div>
+            
+            <div class="rules-card">
+                <h2>กติกาการเล่น</h2>
+                <div class="rule-item">
+                    <div class="rule-num">1</div>
+                    <div>ยกมือขึ้นให้กล้องเห็น นิ้วชี้คือ 🔨 ค้อนของคุณ</div>
+                </div>
+                <div class="rule-item">
+                    <div class="rule-num">2</div>
+                    <div>ตี <b>"ฮาร์ดแวร์"</b> (อุปกรณ์จับต้องได้) ได้ <span style="color:var(--grass-bottom);">+10 คะแนน</span><br><small style="color:#666;font-size:0.8em;">เช่น เมาส์, แป้นพิมพ์, CPU, RAM</small></div>
+                </div>
+                <div class="rule-item">
+                    <div class="rule-num">3</div>
+                    <div>ระวัง! อย่าตี <b>"ซอฟต์แวร์"</b> (โปรแกรม) จะโดนหัก <span style="color:var(--danger);">-5 คะแนน</span><br><small style="color:#666;font-size:0.8em;">เช่น Word, Excel, Photoshop</small></div>
+                </div>
+                <div class="rule-item" style="justify-content: center; margin-top: 20px; color: #b45309;">
+                    ⏳ มีเวลา 60 วินาที ⏳
+                </div>
+            </div>
+
+            <button class="btn-start" id="btn-start" disabled>รอโหลดกล้อง...</button>
+            <div id="loading-text">กำลังเตรียมระบบ AI ตรวจจับมือ (กรุณากดอนุญาตกล้อง)</div>
+        </div>
+
+        <!-- HUD Screen (Game Active) -->
+        <div id="hud-screen" class="screen hidden">
+            <div class="hud-top">
+                <div class="wooden-board hud-box">
+                    ⏳ <span id="time-display">60</span>
+                </div>
+                <div class="wooden-board hud-box">
+                    🏆 <span id="score-display">0</span>
+                </div>
+            </div>
+            <div id="hand-warning" class="hidden">⚠️ ยกมือขึ้นให้กล้องเห็น! ⚠️</div>
+        </div>
+
+        <!-- End Screen -->
+        <div id="end-screen" class="screen hidden">
+            <div class="wooden-board result-board">
+                <h2 id="end-title">หมดเวลา! ยอดเยี่ยมมาก</h2>
+                <div class="final-score" id="final-score-display">150</div>
+                <div class="stats">
+                    <div><span>✅ ตีฮาร์ดแวร์ถูก:</span> <span id="stat-correct">0</span></div>
+                    <div><span>❌ ตีซอฟต์แวร์ผิด:</span> <span id="stat-wrong">0</span></div>
+                </div>
+                <button class="btn-restart" id="btn-restart">🎮 เล่นอีกครั้ง</button>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    /* =========================================
+       AUDIO SYSTEM (Web Audio API)
+       ========================================= */
+    const AudioSys = {
+        ctx: null,
+        init: function() {
+            if (!this.ctx) {
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (this.ctx.state === 'suspended') {
+                this.ctx.resume();
+            }
+        },
+        playTone: function(freq, type, duration, vol=0.1) {
+            if (!this.ctx) return;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+            
+            gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+            
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start();
+            osc.stop(this.ctx.currentTime + duration);
+        },
+        playPop: function() {
+            this.playTone(400, 'sine', 0.1, 0.05);
+        },
+        playHitCorrect: function() {
+            this.playTone(800, 'sine', 0.1, 0.1);
+            setTimeout(() => this.playTone(1200, 'sine', 0.15, 0.1), 50);
+        },
+        playHitWrong: function() {
+            this.playTone(200, 'sawtooth', 0.2, 0.1);
+            setTimeout(() => this.playTone(150, 'sawtooth', 0.3, 0.1), 100);
+        },
+        playGameOver: function() {
+            this.playTone(500, 'square', 0.2, 0.1);
+            setTimeout(() => this.playTone(600, 'square', 0.2, 0.1), 200);
+            setTimeout(() => this.playTone(800, 'square', 0.4, 0.1), 400);
+        }
+    };
+
+    /* =========================================
+       GAME DATA
+       ========================================= */
+    const WORD_DATA = {
+        hardware: [
+            "เมาส์", "แป้นพิมพ์", "จอภาพ", "ลำโพง", "เคส", 
+            "หูฟัง", "ฮาร์ดดิสก์", "CPU", "RAM", "ROM", 
+            "แฟลชไดรฟ์", "เมนบอร์ด", "การ์ดจอ", "ปริ้นเตอร์"
+        ],
+        software: [
+            "Photoshop", "Powerpoint", "PremierePro", "Illustrator", 
+            "WORD", "EXCEL", "Chrome", "Line", "Facebook", 
+            "Windows", "iOS", "Android", "Tiktok", "เกม ROV"
+        ]
+    };
+
+    const GAME_DURATION = 60;
+
+    /* =========================================
+       GAME STATE & VARIABLES
+       ========================================= */
+    let gameState = 'start'; // start, playing, end
+    let score = 0;
+    let timeLeft = GAME_DURATION;
+    let statCorrect = 0;
+    let statWrong = 0;
+    
+    let timerInterval = null;
+    let moles = []; // 9 positions
+    let particles = []; // Floating numbers
+    
+    let handPositions = []; // Stores index finger tips [{x, y}, ...]
+    let handDetectedTime = 0;
+
+    // DOM Elements
+    const videoElement = document.getElementById('input_video');
+    const canvasElement = document.getElementById('output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    
+    const uiStart = document.getElementById('start-screen');
+    const uiHud = document.getElementById('hud-screen');
+    const uiEnd = document.getElementById('end-screen');
+    const btnStart = document.getElementById('btn-start');
+    const btnRestart = document.getElementById('btn-restart');
+    const loadingText = document.getElementById('loading-text');
+    
+    const displayTime = document.getElementById('time-display');
+    const displayScore = document.getElementById('score-display');
+    const warningHand = document.getElementById('hand-warning');
+
+    /* =========================================
+       GRID & MOLE CLASS
+       ========================================= */
+    class Mole {
+        constructor(index) {
+            this.index = index;
+            this.x = 0; // Calculated on resize
+            this.y = 0;
+            this.radius = 0;
+            
+            this.active = false;
+            this.word = "";
+            this.type = ""; // 'hardware' or 'software'
+            this.timer = 0;
+            this.maxLife = 0;
+            this.state = 'hidden'; // hidden, rising, active, falling, hit
+            this.progress = 0; // 0 to 1 for animations
+        }
+
+        updateSize(canvasW, canvasH) {
+            // Grass area is bottom 60% of screen
+            const grassTop = canvasH * 0.4;
+            const grassHeight = canvasH * 0.6;
+            
+            // 3x3 Grid padding
+            const col = this.index % 3;
+            const row = Math.floor(this.index / 3);
+            
+            const cellW = canvasW / 3;
+            const cellH = grassHeight / 3;
+            
+            this.x = (col * cellW) + (cellW / 2);
+            this.y = grassTop + (row * cellH) + (cellH / 2) + (row * 10); // slightly offset lower rows
+            this.radius = Math.min(cellW, cellH) * 0.3; // Mole size
+        }
+
+        spawn(speedMultiplier) {
+            this.active = true;
+            this.state = 'rising';
+            this.progress = 0;
+            
+            // 60% chance for hardware, 40% for software
+            this.type = Math.random() < 0.6 ? 'hardware' : 'software';
+            const wordList = WORD_DATA[this.type];
+            this.word = wordList[Math.floor(Math.random() * wordList.length)];
+            
+            // Base life 1.0 to 1.8 seconds. Decreases as time runs out (speedMultiplier)
+            const baseLife = 1000 + Math.random() * 800;
+            this.maxLife = baseLife * speedMultiplier;
+            this.timer = this.maxLife;
+            
+            AudioSys.playPop();
+        }
+
+        hit() {
+            if (this.state !== 'active' && this.state !== 'rising') return null;
+            
+            this.state = 'hit';
+            this.active = false;
+            
+            return { type: this.type, x: this.x, y: this.y - this.radius };
+        }
+
+        update(dt) {
+            if (!this.active && this.state === 'hidden') return;
+
+            const speed = dt * 0.005; // Animation speed
+
+            if (this.state === 'rising') {
+                this.progress += speed;
+                if (this.progress >= 1) {
+                    this.progress = 1;
+                    this.state = 'active';
+                }
+            } else if (this.state === 'active') {
+                this.timer -= dt;
+                if (this.timer <= 0) {
+                    this.state = 'falling';
+                }
+            } else if (this.state === 'falling' || this.state === 'hit') {
+                this.progress -= speed * (this.state === 'hit' ? 2 : 1); // fall faster if hit
+                if (this.progress <= 0) {
+                    this.progress = 0;
+                    this.state = 'hidden';
+                    this.active = false;
+                }
+            }
+        }
+
+        draw(ctx) {
+            if (this.progress <= 0) return;
+
+            ctx.save();
+            // Translate to hole position
+            ctx.translate(this.x, this.y);
+            
+            // Draw Hole
+            ctx.fillStyle = '#14532d'; // dark green/brown
+            ctx.beginPath();
+            ctx.ellipse(0, 10, this.radius * 1.2, this.radius * 0.4, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Clip for mole animation (so it comes out of hole)
+            ctx.beginPath();
+            ctx.rect(-this.radius*2, -this.radius*3, this.radius*4, this.radius*3 + 10);
+            ctx.clip();
+
+            // Calculate current Y offset based on progress
+            const yOffset = (1 - this.progress) * (this.radius * 2);
+            ctx.translate(0, yOffset);
+
+            // Draw Mole (Cute Emoji approach is performant)
+            ctx.font = `${this.radius * 1.5}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            if (this.state === 'hit') {
+                ctx.fillText('😵', 0, 0); // dizzy if hit
+            } else {
+                ctx.fillText('🐹', 0, 0); // normal mole
+            }
+
+            // Draw Label Board
+            ctx.translate(0, -this.radius * 0.9);
+            
+            // Board bg
+            ctx.fillStyle = this.type === 'hardware' ? '#fcd34d' : '#f87171';
+            const textWidth = ctx.measureText(this.word).width + 30;
+            const boardHeight = this.radius * 0.6;
+            
+            // Drop shadow
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            ctx.shadowBlur = 5;
+            ctx.shadowOffsetY = 3;
+            
+            ctx.beginPath();
+            ctx.roundRect(-textWidth/2, -boardHeight/2, textWidth, boardHeight, 10);
+            ctx.fill();
+            
+            ctx.shadowColor = 'transparent';
+            
+            // Text
+            ctx.fillStyle = '#000';
+            ctx.font = `600 ${this.radius * 0.35}px Kanit`;
+            ctx.fillText(this.word, 0, 0);
+
+            ctx.restore();
+        }
+    }
+
+    class Particle {
+        constructor(x, y, text, color) {
+            this.x = x;
+            this.y = y;
+            this.text = text;
+            this.color = color;
+            this.life = 1.0; // 1 second
+            this.vy = -100; // pixels per second
+        }
+        update(dt) {
+            this.life -= dt / 1000;
+            this.y += this.vy * (dt / 1000);
+        }
+        draw(ctx) {
+            if (this.life <= 0) return;
+            ctx.save();
+            ctx.globalAlpha = this.life;
+            ctx.fillStyle = this.color;
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 4;
+            ctx.font = '800 40px Kanit';
+            ctx.textAlign = 'center';
+            ctx.strokeText(this.text, this.x, this.y);
+            ctx.fillText(this.text, this.x, this.y);
+            ctx.restore();
+        }
+    }
+
+    // Initialize Moles
+    for (let i = 0; i < 9; i++) moles.push(new Mole(i));
+
+    /* =========================================
+       GAME LOGIC
+       ========================================= */
+    function resizeCanvas() {
+        canvasElement.width = window.innerWidth;
+        canvasElement.height = window.innerHeight;
+        moles.forEach(m => m.updateSize(canvasElement.width, canvasElement.height));
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function startGame() {
+        AudioSys.init();
+        gameState = 'playing';
+        score = 0;
+        timeLeft = GAME_DURATION;
+        statCorrect = 0;
+        statWrong = 0;
+        particles = [];
+        moles.forEach(m => m.active = false);
+        
+        uiStart.classList.add('hidden');
+        uiEnd.classList.add('hidden');
+        uiHud.classList.remove('hidden');
+        displayTime.classList.remove('time-warning');
+        
+        updateHUD();
+        
+        // Start Timer
+        if (timerInterval) clearInterval(timerInterval);
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            updateHUD();
+            
+            if (timeLeft === 10) {
+                displayTime.classList.add('time-warning');
+            }
+            
+            if (timeLeft <= 0) {
+                endGame();
+            }
+        }, 1000);
+    }
+
+    function endGame() {
+        gameState = 'end';
+        clearInterval(timerInterval);
+        AudioSys.playGameOver();
+        
+        uiHud.classList.add('hidden');
+        uiEnd.classList.remove('hidden');
+        
+        document.getElementById('final-score-display').innerText = score;
+        document.getElementById('stat-correct').innerText = statCorrect;
+        document.getElementById('stat-wrong').innerText = statWrong;
+        
+        let title = document.getElementById('end-title');
+        if (score >= 100) title.innerText = "ยอดเยี่ยมมาก! อัจฉริยะไอที";
+        else if (score >= 50) title.innerText = "เก่งมาก! ทำได้ดีทีเดียว";
+        else title.innerText = "พยายามเข้านะ! ฝึกฝนอีกนิด";
+    }
+
+    function updateHUD() {
+        displayTime.innerText = timeLeft;
+        displayScore.innerText = score;
+    }
+
+    function spawnLogic(dt) {
+        // Base probability scales with time left (gets harder)
+        const speedMultiplier = Math.max(0.4, timeLeft / GAME_DURATION); 
+        const spawnChance = (0.01 + (1 - speedMultiplier) * 0.02) * (dt/16);
+
+        if (Math.random() < spawnChance) {
+            // Find empty mole
+            const emptyMoles = moles.filter(m => m.state === 'hidden');
+            if (emptyMoles.length > 0) {
+                const target = emptyMoles[Math.floor(Math.random() * emptyMoles.length)];
+                target.spawn(speedMultiplier);
+            }
+        }
+    }
+
+    function checkCollisions() {
+        if (handPositions.length === 0) return;
+
+        moles.forEach(mole => {
+            if (mole.state === 'active' || mole.state === 'rising') {
+                // Check distance from index finger to mole center
+                handPositions.forEach(hand => {
+                    const dx = hand.x - mole.x;
+                    const dy = hand.y - (mole.y - mole.radius*0.5); // Check slightly above base
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    
+                    // Collision radius (generous for kids)
+                    if (dist < mole.radius * 1.5) {
+                        const hitResult = mole.hit();
+                        if (hitResult) {
+                            if (hitResult.type === 'hardware') {
+                                score += 10;
+                                statCorrect++;
+                                AudioSys.playHitCorrect();
+                                particles.push(new Particle(hitResult.x, hitResult.y, "+10", "#4ade80"));
+                            } else {
+                                score = Math.max(0, score - 5);
+                                statWrong++;
+                                AudioSys.playHitWrong();
+                                particles.push(new Particle(hitResult.x, hitResult.y, "-5", "#ef4444"));
+                            }
+                            updateHUD();
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    /* =========================================
+       MAIN RENDER LOOP
+       ========================================= */
+    let lastTime = performance.now();
+
+    function gameLoop() {
+        const now = performance.now();
+        const dt = now - lastTime;
+        lastTime = now;
+
+        // Clear Canvas
+        canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+        // Draw Webcam Background (Mirrored)
+        canvasCtx.save();
+        canvasCtx.scale(-1, 1);
+        canvasCtx.translate(-canvasElement.width, 0);
+        // Draw video full cover
+        const videoRatio = videoElement.videoWidth / videoElement.videoHeight;
+        const canvasRatio = canvasElement.width / canvasElement.height;
+        let drawW, drawH, drawX, drawY;
+        
+        if (videoRatio > canvasRatio) {
+            drawH = canvasElement.height;
+            drawW = drawH * videoRatio;
+            drawX = (canvasElement.width - drawW) / 2;
+            drawY = 0;
+        } else {
+            drawW = canvasElement.width;
+            drawH = drawW / videoRatio;
+            drawX = 0;
+            drawY = (canvasElement.height - drawH) / 2;
+        }
+        
+        if(videoElement.readyState === 4) {
+            canvasCtx.globalAlpha = 0.8; // dim video slightly
+            canvasCtx.drawImage(videoElement, drawX, drawY, drawW, drawH);
+            canvasCtx.globalAlpha = 1.0;
+        }
+        canvasCtx.restore();
+
+        // Draw Game Elements
+        if (gameState === 'playing') {
+            // Draw Grass overlay
+            const grassTop = canvasElement.height * 0.4;
+            const gradient = canvasCtx.createLinearGradient(0, grassTop, 0, canvasElement.height);
+            gradient.addColorStop(0, 'rgba(134, 239, 172, 0.85)'); // var(--grass-top)
+            gradient.addColorStop(1, 'rgba(34, 197, 94, 0.95)');   // var(--grass-bottom)
+            
+            canvasCtx.fillStyle = gradient;
+            canvasCtx.beginPath();
+            // Wavy grass top
+            canvasCtx.moveTo(0, grassTop + 20);
+            for(let i=0; i<=canvasElement.width; i+=50) {
+                canvasCtx.lineTo(i, grassTop + 20 + Math.sin(i*0.05 + now*0.002)*10);
+            }
+            canvasCtx.lineTo(canvasElement.width, canvasElement.height);
+            canvasCtx.lineTo(0, canvasElement.height);
+            canvasCtx.fill();
+
+            // Logic Updates
+            spawnLogic(dt);
+            checkCollisions();
+
+            // Draw Moles
+            moles.forEach(m => {
+                m.update(dt);
+                m.draw(canvasCtx);
+            });
+
+            // Draw Particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update(dt);
+                particles[i].draw(canvasCtx);
+                if (particles[i].life <= 0) particles.splice(i, 1);
+            }
+
+            // Draw Hands (Hammers) & Warnings
+            if (now - handDetectedTime > 500) {
+                warningHand.classList.remove('hidden');
+            } else {
+                warningHand.classList.add('hidden');
+                
+                handPositions.forEach(hand => {
+                    canvasCtx.font = 'clamp(40px, 8vw, 80px) Arial';
+                    canvasCtx.textAlign = 'center';
+                    canvasCtx.textBaseline = 'middle';
+                    // Angle hammer slightly
+                    canvasCtx.save();
+                    canvasCtx.translate(hand.x, hand.y);
+                    canvasCtx.rotate(-Math.PI / 4);
+                    canvasCtx.fillText('🔨', 0, 0);
+                    canvasCtx.restore();
+                });
+            }
+        }
+
+        requestAnimationFrame(gameLoop);
+    }
+
+
+    /* =========================================
+       MEDIAPIPE SETUP
+       ========================================= */
+    const hands = new Hands({locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+    }});
+
+    hands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 0, // 0 for fast performance on low end
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+
+    hands.onResults((results) => {
+        handPositions = [];
+        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+            handDetectedTime = performance.now();
+            
+            for (const landmarks of results.multiHandLandmarks) {
+                // Landmark 8 is Index Finger Tip
+                const indexTip = landmarks[8];
+                
+                // Mirror X coordinate because we mirrored the canvas
+                const x = (1 - indexTip.x) * canvasElement.width;
+                const y = indexTip.y * canvasElement.height;
+                
+                handPositions.push({x, y});
+            }
+        }
+    });
+
+    const camera = new Camera(videoElement, {
+        onFrame: async () => {
+            await hands.send({image: videoElement});
+        },
+        width: 640,
+        height: 480
+    });
+
+    // Start Camera and Initialize
+    camera.start()
+        .then(() => {
+            btnStart.innerText = "เริ่มเกมเลย!";
+            btnStart.disabled = false;
+            loadingText.innerText = "✅ กล้องพร้อมใช้งานแล้ว";
+            
+            // Start render loop once camera is ready
+            requestAnimationFrame(gameLoop);
+        })
+        .catch((err) => {
+            loadingText.innerText = "❌ ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตการเข้าถึงกล้อง";
+            loadingText.style.color = "#ef4444";
+            console.error(err);
+        });
+
+    // Event Listeners
+    btnStart.addEventListener('click', startGame);
+    btnRestart.addEventListener('click', startGame);
+
+</script>
+</body>
+</html>
